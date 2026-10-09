@@ -1,26 +1,23 @@
-from flask import Flask, request, jsonify
+from aiohttp import web
 from datetime import datetime
 
-app = Flask(__name__)
-
 # In-memory storage for ads
-ads = {}
-next_id = 1
+ads: dict[int, dict] = {}
+next_id: int = 1
 
 
-@app.route('/ads', methods=['POST'])
-def create_ad():
+async def create_ad(request: web.Request) -> web.Response:
     global next_id
 
-    data = request.get_json()
-
-    if not data:
-        return jsonify({'error': 'Request body must be JSON'}), 400
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Request body must be JSON'}, status=400)
 
     required_fields = ['title', 'description', 'owner']
     for field in required_fields:
         if field not in data:
-            return jsonify({'error': f'Missing required field: {field}'}), 400
+            return web.json_response({'error': f'Missing required field: {field}'}, status=400)
 
     ad_id = next_id
     next_id += 1
@@ -34,49 +31,59 @@ def create_ad():
     }
 
     ads[ad_id] = ad
+    return web.json_response(ad, status=201)
 
-    return jsonify(ad), 201
 
-
-@app.route('/ads', methods=['GET'])
-def get_ads():
-    ad_id = request.args.get('id')
+async def get_ads(request: web.Request) -> web.Response:
+    ad_id = request.query.get('id')
 
     if ad_id:
         ad_id = int(ad_id)
         if ad_id not in ads:
-            return jsonify({'error': 'Ad not found'}), 404
-        return jsonify(ads[ad_id])
+            return web.json_response({'error': 'Ad not found'}, status=404)
+        return web.json_response(ads[ad_id])
 
-    return jsonify(list(ads.values()))
+    return web.json_response(list(ads.values()))
 
 
-@app.route('/ads/<int:ad_id>', methods=['PUT'])
-def update_ad(ad_id):
+async def update_ad(request: web.Request) -> web.Response:
+    ad_id = int(request.match_info['id'])
+
     if ad_id not in ads:
-        return jsonify({'error': 'Ad not found'}), 404
+        return web.json_response({'error': 'Ad not found'}, status=404)
 
-    data = request.get_json()
-
-    if not data:
-        return jsonify({'error': 'Request body must be JSON'}), 400
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({'error': 'Request body must be JSON'}, status=400)
 
     updatable_fields = ['title', 'description', 'owner']
     for field in updatable_fields:
         if field in data:
             ads[ad_id][field] = data[field]
 
-    return jsonify(ads[ad_id])
+    return web.json_response(ads[ad_id])
 
 
-@app.route('/ads/<int:ad_id>', methods=['DELETE'])
-def delete_ad(ad_id):
+async def delete_ad(request: web.Request) -> web.Response:
+    ad_id = int(request.match_info['id'])
+
     if ad_id not in ads:
-        return jsonify({'error': 'Ad not found'}), 404
+        return web.json_response({'error': 'Ad not found'}, status=404)
 
     deleted_ad = ads.pop(ad_id)
-    return jsonify(deleted_ad)
+    return web.json_response(deleted_ad)
+
+
+def create_app() -> web.Application:
+    app = web.Application()
+    app.router.add_post('/ads', create_ad)
+    app.router.add_get('/ads', get_ads)
+    app.router.add_put('/ads/{id}', update_ad)
+    app.router.add_delete('/ads/{id}', delete_ad)
+    return app
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app = create_app()
+    web.run_app(app)
